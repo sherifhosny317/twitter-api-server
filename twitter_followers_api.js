@@ -1,36 +1,44 @@
 const express = require("express");
-const chromium = require("chrome-aws-lambda");
+const puppeteer = require("puppeteer-core");
+const chromium  = require("chrome-aws-lambda");
+
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 app.get("/followers", async (req, res) => {
   const username = req.query.username;
-  if (!username) return res.status(400).send("Missing username");
+  if (!username) return res.status(400).json({ error: "Username is required" });
 
-  let browser = null;
+  let browser;
   try {
-    browser = await chromium.puppeteer.launch({
+    browser = await puppeteer.launch({
       args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath,
       headless: chromium.headless,
+      defaultViewport: chromium.defaultViewport,
     });
 
     const page = await browser.newPage();
     await page.goto(`https://x.com/${username}`, { waitUntil: "networkidle2" });
-
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
 
     const followers = await page.evaluate(() => {
-      const span = [...document.querySelectorAll("a[href$='/followers'] span")].pop();
-      return span ? span.innerText : "Unavailable";
+      const span = Array.from(document.querySelectorAll("a[href$='/followers'] span")).pop();
+      return span ? span.innerText.trim() : "Unavailable";
     });
 
     res.json({ username, followers });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   } finally {
     if (browser) await browser.close();
   }
 });
 
-app.listen(3000, () => console.log("✅ Puppeteer Core API running on port 3000"));
+app.get("/", (_req, res) => {
+  res.send("🟢 API up — use /followers?username=XYZ");
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ API running on port ${PORT}`);
+});
