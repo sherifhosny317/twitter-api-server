@@ -1,13 +1,14 @@
 {
-  "name": "twitter-api-server",
+  "name": "twitter-api-server-lite",
   "version": "1.0.0",
-  "description": "Local API to fetch Twitter followers using Puppeteer",
+  "description": "Puppeteer API using puppeteer-core for Render",
   "main": "twitter_followers_api.js",
   "scripts": {
     "start": "node twitter_followers_api.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^21.3.8"
+    "puppeteer-core": "^21.3.8",
+    "chrome-aws-lambda": "^10.1.0"
   }
 }
