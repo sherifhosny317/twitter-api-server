@@ -1,0 +1,36 @@
+const express = require('express');
+const fetch = require('node-fetch');
+const cheerio = require('cheerio');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Serve static files from public
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/scrape', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+  try {
+    const match = url.match(/twitter\.com\/([^\/]+)\/status\/([0-9]+)/);
+    if (!match) return res.status(400).json({ error: 'Invalid Twitter status URL' });
+    const username = match[1];
+    const statusId = match[2];
+    // Fetch mobile version
+    const resp = await fetch(`https://mobile.twitter.com/${username}/status/${statusId}`);
+    const html = await resp.text();
+    const $ = cheerio.load(html);
+    // Extract tweet text
+    const tweetText = $('div.tweet-text, div.dir-ltr').first().text().trim() || '';
+    // Extract followers
+    const followers = $('a[href$="/followers"] span').first().text().trim() || 'Unavailable';
+    res.json({ url, tweetText, username, followers });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
