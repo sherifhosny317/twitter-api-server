@@ -1,58 +1,42 @@
-const express = require("express");
-const puppeteer = require("puppeteer");
+const express = require('express');
+const fetch = require('node-fetch');
+const cheerio = require('cheerio');
+const path = require('path');
 const app = express();
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
-app.use(express.static("public"));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-app.post("/scrape", async (req, res) => {
-  const tweetURL = req.body.url;
+app.get('/scrape', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
 
-  if (!tweetURL || !tweetURL.includes("twitter.com") && !tweetURL.includes("x.com")) {
-    return res.json({ error: "Invalid Twitter URL" });
-  }
-
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  });
+  const match = url.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i);
+  if (!match) return res.status(400).json({ error: 'Invalid Twitter/X status URL' });
+  const [, username, statusId] = match;
 
   try {
-    const page = await browser.newPage();
-    await page.goto(tweetURL, { waitUntil: "networkidle2" });
-
-    const username = await page.$eval('div[data-testid="User-Name"] a[href^="/"]', el => el.textContent.trim());
-
-    let content = "Unavailable";
-    try {
-      await page.waitForSelector('[data-testid="tweetText"]', { timeout: 5000 });
-      content = await page.$eval('[data-testid="tweetText"]', el => el.innerText.trim());
-    } catch (e) {}
-
-    const profileURL = "https://twitter.com/" + username.replace("@", "");
-    await page.goto(profileURL, { waitUntil: "networkidle2" });
-
-    let followers = "Unavailable";
-    try {
-      await page.waitForSelector('a[href$="/followers"] > span > span', { timeout: 5000 });
-      followers = await page.$eval('a[href$="/followers"] > span > span', el => el.textContent.trim());
-    } catch (e) {}
-
-    res.json({
-      platform: "X (formerly Twitter)",
-      url: tweetURL,
-      username,
-      content,
-      followers,
+    const resp = await fetch(`https://mobile.twitter.com/${username}/status/${statusId}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
     });
-  } catch (error) {
-    res.json({ error: "Scraping failed" });
-  } finally {
-    await browser.close();
+    const html = await resp.text();
+    const $ = cheerio.load(html);
+
+    const tweetText = $('div[data-testid="tweetText"], div.tweet-text, div.dir-ltr')
+      .first()
+      .text()
+      .trim() || 'Unavailable';
+
+    const followers = $('a[href$="/followers"] span')
+      .first()
+      .text()
+      .trim() || 'Unavailable';
+
+    res.json({ url, tweetText, username, followers });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
