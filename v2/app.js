@@ -1,49 +1,51 @@
 const express = require('express');
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
-const path = require('path');
+const puppeteer = require('puppeteer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static('public'));
 app.use(express.json());
 
-app.get('/scrape', async (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.status(400).json({ error: 'URL is required' });
-  const match = url.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i);
-  if (!match) return res.status(400).json({ error: 'Invalid URL' });
-  const [, username, statusId] = match;
+app.post('/scrape', async (req, res) => {
+  const tweetURL = req.body.url;
+  if (!tweetURL || (!tweetURL.includes('twitter.com') && !tweetURL.includes('x.com'))) {
+    return res.status(400).json({ error: 'Invalid Twitter/X URL' });
+  }
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
 
   try {
-    const resp = await fetch(`https://mobile.twitter.com/${username}/status/${statusId}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-    const html = await resp.text();
-    const $ = cheerio.load(html);
+    const page = await browser.newPage();
 
-    let tweetText = $('span.css-1jxf684.r-bcqeeo.r-1ttztb7.r-qvutc0.r-poiln3')
-      .first()
-      .text()
-      .trim();
-    if (!tweetText) {
-      tweetText = $('div[data-testid="tweetText"], div.tweet-text, div.dir-ltr')
-        .first()
-        .text()
-        .trim();
-    }
-    if (!tweetText) tweetText = 'Unavailable';
+    // 1) Extract tweet content
+    await page.goto(tweetURL, { waitUntil: 'networkidle2' });
+    await page.waitForSelector('[data-testid="tweetText"]', { timeout: 10000 });
+    const content = await page.$eval(
+      '[data-testid="tweetText"]',
+      el => el.innerText.trim()
+    );
 
-    let followers = $('a[href$="/followers"] span')
-      .first()
-      .text()
-      .trim();
-    if (!followers) followers = 'Unavailable';
+    // 2) Derive profile URL and extract followers
+    const username = tweetURL.match(/(?:twitter|x)\\.com\\/([^\\/]+)\\//i)[1];
+    const profileURL = `https://twitter.com/${username}`;
+    await page.goto(profileURL, { waitUntil: 'networkidle2' });
+    await page.waitForSelector('a[href$="/followers"] span span', { timeout: 10000 });
+    const followers = await page.$eval(
+      'a[href$="/followers"] span span',
+      el => el.innerText.trim()
+    );
 
-    res.json({ url, username, tweetText, followers });
+    res.json({ url: tweetURL, content, username, followers });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  } finally {
+    await browser.close();
   }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
