@@ -13,7 +13,7 @@ app.get('/scrape', async (req, res) => {
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
   const match = url.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i);
-  if (!match) return res.status(400).json({ error: 'Invalid Twitter/X status URL' });
+  if (!match) return res.status(400).json({ error: 'Invalid URL' });
   const [, username, statusId] = match;
 
   try {
@@ -23,17 +23,27 @@ app.get('/scrape', async (req, res) => {
     const html = await resp.text();
     const $ = cheerio.load(html);
 
-    const tweetText = $('div[data-testid="tweetText"], div.tweet-text, div.dir-ltr')
+    // Try user‐provided CSS classes first
+    let tweetText = $('span.css-1jxf684.r-bcqeeo.r-1ttztb7.r-qvutc0.r-poiln3')
       .first()
       .text()
-      .trim() || 'Unavailable';
+      .trim();
+    // Fallback to data-testid or generic selectors
+    if (!tweetText) {
+      tweetText = $('div[data-testid="tweetText"], div.tweet-text, div.dir-ltr')
+        .first()
+        .text()
+        .trim();
+    }
+    if (!tweetText) tweetText = 'Unavailable';
 
-    const followers = $('a[href$="/followers"] span')
+    let followers = $('a[href$="/followers"] span')
       .first()
       .text()
-      .trim() || 'Unavailable';
+      .trim();
+    if (!followers) followers = 'Unavailable';
 
-    res.json({ url, tweetText, username, followers });
+    res.json({ url, username, tweetText, followers });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
