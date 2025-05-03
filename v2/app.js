@@ -1,3 +1,4 @@
+// v2/app.js
 const express = require('express');
 const fetch = require('node-fetch');
 const cheerio = require('cheerio');
@@ -6,6 +7,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Serve static assets
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/scrape', async (req, res) => {
@@ -21,15 +23,17 @@ app.get('/scrape', async (req, res) => {
     const html = await (await fetch(mobileUrl)).text();
     const $ = cheerio.load(html);
 
-    // 1) استخراج النص من أول div مع lang داخل article
-    const tweetText = $('article div[lang]').first().text().trim() || 'Unavailable';
+    // 1) Tweet content via data-testid="tweetText"
+    const tweetText = $('div[data-testid="tweetText"]')
+      .map((i, el) => $(el).text())
+      .get()
+      .join(' ')
+      .trim() || 'Unavailable';
 
-    // 2) استخراج عدد المتابعين من آخر رابط ينتهي ب /followers
-    const followerAnchor = $('a[href$="/followers"]').last();
-    const followersSpan = followerAnchor.find('span').last();
-    let followers = followersSpan.text().trim() || 'Unavailable';
-    // إزالة الكلمة "Followers" لو موجودة
-    followers = followers.replace(/Followers?/, '').trim();
+    // 2) Followers: anchor ending with /followers, extract trailing number
+    const followersText = $('a[href$="/followers"]').text().trim();
+    const m = followersText.match(/([\d,\.]+)\s*Followers?$/i);
+    const followers = m ? m[1] : 'Unavailable';
 
     res.json({ url: mobileUrl, tweetText, username, followers });
   } catch (err) {
