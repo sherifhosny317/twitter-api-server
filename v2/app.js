@@ -28,9 +28,11 @@ app.post('/scrape', async (req, res) => {
       el => el.innerText.trim()
     );
 
-    // 2) Derive profile URL and extract followers
-    const username = tweetURL.match(/(?:twitter|x)\\.com\\/([^\\/]+)\\//i)[1];
+    // 2) Derive username and open profile to get followers
+    const usernameMatch = tweetURL.match(/(?:twitter|x)\.com\/([^\/]+)\//i);
+    const username = usernameMatch ? usernameMatch[1] : '';
     const profileURL = `https://twitter.com/${username}`;
+
     await page.goto(profileURL, { waitUntil: 'networkidle2' });
     await page.waitForSelector('a[href$="/followers"] span span', { timeout: 10000 });
     const followers = await page.$eval(
