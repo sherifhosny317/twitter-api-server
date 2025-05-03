@@ -1,66 +1,58 @@
 const express = require("express");
 const puppeteer = require("puppeteer");
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = process.env.PORT || 3000;
 
 app.use(express.static("public"));
 app.use(express.json());
 
-function convertToFullLink(url) {
-  return url.replace("x.com", "twitter.com").replace("mobile.twitter.com", "twitter.com");
-}
-
-function formatFollowers(text) {
-  if (!text) return "Unavailable";
-  const num = parseFloat(text.replace(/,/g, ""));
-  if (text.toLowerCase().includes("m")) return (num * 1_000_000).toLocaleString();
-  if (text.toLowerCase().includes("k")) return (num * 1_000).toLocaleString();
-  return num.toLocaleString();
-}
-
 app.post("/scrape", async (req, res) => {
-  const tweetUrl = req.body.url;
-  if (!tweetUrl) return res.status(400).json({ error: "No URL provided" });
+  const tweetURL = req.body.url;
+
+  if (!tweetURL || !tweetURL.includes("twitter.com") && !tweetURL.includes("x.com")) {
+    return res.json({ error: "Invalid Twitter URL" });
+  }
 
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
   try {
     const page = await browser.newPage();
-    await page.goto(tweetUrl, { waitUntil: "networkidle2", timeout: 60000 });
+    await page.goto(tweetURL, { waitUntil: "networkidle2" });
 
-    await page.waitForTimeout(3000);
+    const username = await page.$eval('div[data-testid="User-Name"] a[href^="/"]', el => el.textContent.trim());
 
-    const data = await page.evaluate(() => {
-      const contentElement = document.querySelector('[data-testid="tweetText"]');
-      const content = contentElement?.innerText || "Unavailable";
+    let content = "Unavailable";
+    try {
+      await page.waitForSelector('[data-testid="tweetText"]', { timeout: 5000 });
+      content = await page.$eval('[data-testid="tweetText"]', el => el.innerText.trim());
+    } catch (e) {}
 
-      const userElement = document.querySelector('div.r-1wbh5a2.r-dnmrzs > span');
-      const username = userElement?.textContent || "Unavailable";
+    const profileURL = "https://twitter.com/" + username.replace("@", "");
+    await page.goto(profileURL, { waitUntil: "networkidle2" });
 
-      const followersEl = Array.from(document.querySelectorAll("a"))
-        .find(a => a.href.includes("/followers") && a.querySelector("span span"));
-      const followersText = followersEl?.innerText || "Unavailable";
+    let followers = "Unavailable";
+    try {
+      await page.waitForSelector('a[href$="/followers"] > span > span', { timeout: 5000 });
+      followers = await page.$eval('a[href$="/followers"] > span > span', el => el.textContent.trim());
+    } catch (e) {}
 
-      return { content, username, followersText };
+    res.json({
+      platform: "X (formerly Twitter)",
+      url: tweetURL,
+      username,
+      content,
+      followers,
     });
-
+  } catch (error) {
+    res.json({ error: "Scraping failed" });
+  } finally {
     await browser.close();
-
-    return res.json({
-      content: data.content,
-      username: data.username,
-      followers: formatFollowers(data.followersText),
-      url: tweetUrl,
-    });
-  } catch (err) {
-    await browser.close();
-    return res.status(500).json({ error: "Scraping failed", details: err.message });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server started on http://localhost:${PORT}`);
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });
