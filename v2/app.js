@@ -8,13 +8,18 @@ app.use(express.json());
 
 app.post('/scrape', async (req, res) => {
   const tweetURL = req.body.url;
-  if (!tweetURL || (!tweetURL.includes('twitter.com') && !tweetURL.includes('x.com'))) {
+  if (
+    !tweetURL ||
+    (!tweetURL.includes('twitter.com') && !tweetURL.includes('x.com'))
+  ) {
     return res.status(400).json({ error: 'Invalid Twitter/X URL' });
   }
 
   const browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    executablePath:
+      'C:\\\\Users\\\\Sherif\\\\AppData\\\\Local\\\\Chromium\\\\Application\\\\chrome.exe'
   });
 
   try {
@@ -28,13 +33,15 @@ app.post('/scrape', async (req, res) => {
       el => el.innerText.trim()
     );
 
-    // 2) Derive username and open profile to get followers
-    const usernameMatch = tweetURL.match(/(?:twitter|x)\.com\/([^\/]+)\//i);
-    const username = usernameMatch ? usernameMatch[1] : '';
+    // 2) Extract username from URL and then followers from profile
+    const match = tweetURL.match(/(?:twitter|x)\\.com\\/([^\\/]+)\\//i);
+    const username = match ? match[1] : '';
     const profileURL = `https://twitter.com/${username}`;
 
     await page.goto(profileURL, { waitUntil: 'networkidle2' });
-    await page.waitForSelector('a[href$="/followers"] span span', { timeout: 10000 });
+    await page.waitForSelector('a[href$="/followers"] span span', {
+      timeout: 10000
+    });
     const followers = await page.$eval(
       'a[href$="/followers"] span span',
       el => el.innerText.trim()
