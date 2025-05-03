@@ -11,7 +11,6 @@ app.use(express.json());
 app.get('/scrape', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'URL is required' });
-
   const match = url.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i);
   if (!match) return res.status(400).json({ error: 'Invalid URL' });
   const [, username, statusId] = match;
@@ -23,12 +22,10 @@ app.get('/scrape', async (req, res) => {
     const html = await resp.text();
     const $ = cheerio.load(html);
 
-    // Try user‐provided CSS classes first
     let tweetText = $('span.css-1jxf684.r-bcqeeo.r-1ttztb7.r-qvutc0.r-poiln3')
       .first()
       .text()
       .trim();
-    // Fallback to data-testid or generic selectors
     if (!tweetText) {
       tweetText = $('div[data-testid="tweetText"], div.tweet-text, div.dir-ltr')
         .first()
