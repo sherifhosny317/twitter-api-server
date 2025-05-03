@@ -12,20 +12,32 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/scrape', async (req, res) => {
   const url = req.query.url;
   if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  // Accept both twitter.com and x.com URLs
+  const match = url.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i);
+  if (!match) {
+    return res.status(400).json({ error: 'Invalid Twitter/X status URL' });
+  }
+  const [, username, statusId] = match;
+
   try {
-    const match = url.match(/twitter\.com\/([^\/]+)\/status\/([0-9]+)/);
-    if (!match) return res.status(400).json({ error: 'Invalid Twitter status URL' });
-    const username = match[1];
-    const statusId = match[2];
-    // Fetch mobile version
-    const resp = await fetch(`https://mobile.twitter.com/${username}/status/${statusId}`);
+    // Always fetch mobile.twitter.com for consistency
+    const mobileUrl = `https://mobile.twitter.com/${username}/status/${statusId}`;
+    const resp = await fetch(mobileUrl);
     const html = await resp.text();
     const $ = cheerio.load(html);
+
     // Extract tweet text
     const tweetText = $('div.tweet-text, div.dir-ltr').first().text().trim() || '';
-    // Extract followers
-    const followers = $('a[href$="/followers"] span').first().text().trim() || 'Unavailable';
-    res.json({ url, tweetText, username, followers });
+
+    // Wait for the followers link (if you switch to Puppeteer, you'd do waitForSelector here)
+    // Extract the last <span> inside the /followers link (that's the count)
+    const followerSpans = $('a[href$="/followers"] span');
+    const followers = followerSpans.length
+      ? $(followerSpans.get(-1)).text().trim()
+      : 'Unavailable';
+
+    res.json({ url: mobileUrl, tweetText, username, followers });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
