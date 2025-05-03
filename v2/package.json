@@ -1,7 +1,7 @@
 {
   "name": "twitter-scraper-ui",
-  "version": "1.1.0",
-  "description": "Lightweight scraper API for Twitter tweets and followers using node-fetch and cheerio",
+  "version": "1.2.0",
+  "description": "Lightweight scraper via Nitter for tweet content and followers",
   "main": "app.js",
   "scripts": {
     "start": "node app.js"
