@@ -1,60 +1,37 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const fetch = require('node-fetch');
+const cheerio = require('cheerio');
+const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-app.post('/scrape', async (req, res) => {
-  const tweetURL = req.body.url;
-  if (
-    !tweetURL ||
-    (!tweetURL.includes('twitter.com') && !tweetURL.includes('x.com'))
-  ) {
-    return res.status(400).json({ error: 'Invalid Twitter/X URL' });
-  }
+app.get('/scrape', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    executablePath:
-      'C:\\\\Users\\\\Sherif\\\\AppData\\\\Local\\\\Chromium\\\\Application\\\\chrome.exe'
-  });
+  const match = url.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i);
+  if (!match) return res.status(400).json({ error: 'Invalid URL' });
+  const [, username, statusId] = match;
 
   try {
-    const page = await browser.newPage();
-
-    // 1) Extract tweet content
-    await page.goto(tweetURL, { waitUntil: 'networkidle2' });
-    await page.waitForSelector('[data-testid="tweetText"]', { timeout: 10000 });
-    const content = await page.$eval(
-      '[data-testid="tweetText"]',
-      el => el.innerText.trim()
+    const resp = await fetch(
+      `https://mobile.twitter.com/${username}/status/${statusId}`,
+      { headers: { 'User-Agent': 'Mozilla/5.0' } }
     );
+    const html = await resp.text();
+    const $ = cheerio.load(html);
 
-    // 2) Extract username from URL and then followers from profile
-    const match = tweetURL.match(/(?:twitter|x)\\.com\\/([^\\/]+)\\//i);
-    const username = match ? match[1] : '';
-    const profileURL = `https://twitter.com/${username}`;
+    const tweetText = $('div[data-testid="tweetText"], div.tweet-text, div.dir-ltr')
+      .first().text().trim() || 'Unavailable';
+    const followers = $('a[href$="/followers"] span').first().text().trim() || 'Unavailable';
 
-    await page.goto(profileURL, { waitUntil: 'networkidle2' });
-    await page.waitForSelector('a[href$="/followers"] span span', {
-      timeout: 10000
-    });
-    const followers = await page.$eval(
-      'a[href$="/followers"] span span',
-      el => el.innerText.trim()
-    );
-
-    res.json({ url: tweetURL, content, username, followers });
+    res.json({ url, username, tweetText, followers });
   } catch (err) {
     res.status(500).json({ error: err.message });
-  } finally {
-    await browser.close();
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
