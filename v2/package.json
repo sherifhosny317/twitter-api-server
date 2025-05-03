@@ -4,7 +4,8 @@
   "description": "UI and server to scrape Twitter tweet data and followers",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "postinstall": "puppeteer install"
   },
   "dependencies": {
     "express": "^4.18.2",
