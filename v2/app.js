@@ -1,6 +1,7 @@
 const express = require('express')
 const fetch = require('node-fetch')
 const cheerio = require('cheerio')
+const path = require('path')
 const app = express()
 const port = process.env.PORT || 3000
 
@@ -24,6 +25,8 @@ async function tryFetch(originalUrl) {
   throw new Error('All nitter instances failed')
 }
 
+app.use(express.static(path.join(__dirname, 'public')))
+
 app.get('/scrape', async (req, res) => {
   const tweetUrl = req.query.url || ''
   const m = tweetUrl.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i)
@@ -34,10 +37,9 @@ app.get('/scrape', async (req, res) => {
     const tweetRes = await tryFetch(tweetUrl)
     const html = await tweetRes.text()
     const $ = cheerio.load(html)
-    content = $('div.main-tweet div.tweet-content').find('p').text().trim() ||
+    content = $('div.main-tweet div.tweet-content p').text().trim() ||
               $('div.tweet-content p').text().trim() ||
               'Unavailable'
-
     const profRes = await tryFetch(`https://nitter.net/${username}`)
     const profHtml = await profRes.text()
     const _$ = cheerio.load(profHtml)
