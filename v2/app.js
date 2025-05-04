@@ -1,59 +1,52 @@
-const express = require('express');
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
-const path = require('path');
-
-const app = express();
-const PORT = process.env.PORT || 3000;
+const express = require('express')
+const fetch = require('node-fetch')
+const cheerio = require('cheerio')
+const app = express()
+const port = process.env.PORT || 3000
 
 const nitterInstances = [
   'https://nitter.net',
   'https://nitter.snopyta.org',
   'https://nitter.1d4.us',
-  'https://nitter.pussthecat.org'
-];
+  'https://nitter.13ad.de'
+]
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-async function tryFetch(url) {
-  let lastErr;
-  for (const base of nitterInstances) {
+async function tryFetch(originalUrl) {
+  for (const inst of nitterInstances) {
+    const url = originalUrl
+      .replace(/https?:\/\/[^/]+/, inst)
+      .replace(/#.*$/, '')
     try {
-      const resp = await fetch(url.replace(/^https?:\/\/[^/]+/, base), { timeout: 10000 });
-      if (resp.ok) return await resp.text();
-      lastErr = new Error(`HTTP ${resp.status}`);
-    } catch (err) {
-      lastErr = err;
-    }
+      const res = await fetch(url, { timeout: 10000 })
+      if (res.ok) return res
+    } catch (err) {}
   }
-  throw lastErr;
+  throw new Error('All nitter instances failed')
 }
 
 app.get('/scrape', async (req, res) => {
-  const tweetURL = req.query.url;
-  if (!tweetURL) return res.json({ error: 'Missing url query parameter' });
-  const usernameMatch = tweetURL.match(/x\.com\/([^\/]+)\//i);
-  const username = usernameMatch ? usernameMatch[1] : 'Unavailable';
-
+  const tweetUrl = req.query.url || ''
+  const m = tweetUrl.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i)
+  const username = m ? m[1] : 'Unknown'
+  let content = 'Unavailable'
+  let followers = 'Unavailable'
   try {
-    const tweetHTML = await tryFetch(tweetURL);
-    const $ = cheerio.load(tweetHTML);
-    const content = $('div.tweet-content p').text().trim() || 'Unavailable';
+    const tweetRes = await tryFetch(tweetUrl)
+    const html = await tweetRes.text()
+    const $ = cheerio.load(html)
+    content = $('div.main-tweet div.tweet-content').find('p').text().trim() ||
+              $('div.tweet-content p').text().trim() ||
+              'Unavailable'
 
-    let followers = 'Unavailable';
-    try {
-      const profileHTML = await tryFetch(`https://x.com/${username}`);
-      const $$ = cheerio.load(profileHTML);
-      followers = $$('a[href$="/followers"] .profile-stat-num').first().text().trim() || 'Unavailable';
-    } catch {}
-
-    res.json({ url: tweetURL, username, content, followers });
+    const profRes = await tryFetch(`https://nitter.net/${username}`)
+    const profHtml = await profRes.text()
+    const _$ = cheerio.load(profHtml)
+    followers = _$('div.profile-statlist a[href$="/followers"]').text().trim() ||
+                'Unavailable'
+    res.json({ url: tweetUrl, username, content, followers })
   } catch (err) {
-    res.json({ url: tweetURL, username, content: 'Unavailable', followers: 'Unavailable', error: err.message });
+    res.json({ url: tweetUrl, username, content, followers, error: err.message })
   }
-});
+})
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(port)
