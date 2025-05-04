@@ -2,50 +2,57 @@ const express = require('express');
 const fetch = require('node-fetch');
 const cheerio = require('cheerio');
 const path = require('path');
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 1) Serve static UI from public/
-app.use(express.static(path.join(__dirname, 'public')));
+const nitterInstances = [
+  'https://nitter.net',
+  'https://nitter.snopyta.org',
+  'https://nitter.1d4.us',
+  'https://nitter.pussthecat.org'
+];
 
-// 2) Root route -> index.html
+app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+async function tryFetch(url) {
+  let lastErr;
+  for (const base of nitterInstances) {
+    try {
+      const resp = await fetch(url.replace(/^https?:\/\/[^/]+/, base), { timeout: 10000 });
+      if (resp.ok) return await resp.text();
+      lastErr = new Error(`HTTP ${resp.status}`);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 app.get('/scrape', async (req, res) => {
   const tweetURL = req.query.url;
   if (!tweetURL) return res.json({ error: 'Missing url query parameter' });
+  const usernameMatch = tweetURL.match(/x\.com\/([^\/]+)\//i);
+  const username = usernameMatch ? usernameMatch[1] : 'Unavailable';
 
   try {
-    // fetch the tweet page via Nitter
-    const nitterURL = tweetURL.replace(/^(?:https?:\/\/)(?:www\.)?x\.com/, 'https://nitter.net');
-    const resp = await fetch(nitterURL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const html = await resp.text();
-    const $ = cheerio.load(html);
+    const tweetHTML = await tryFetch(tweetURL);
+    const $ = cheerio.load(tweetHTML);
+    const content = $('div.tweet-content p').text().trim() || 'Unavailable';
 
-    // extract content
-    const content = $('div.tweet-content').find('p').text().trim() || 'Unavailable';
-
-    // extract username & followers
-    const usernameMatch = tweetURL.match(/x\.com\/([^\/]+)\//i);
-    const username = usernameMatch ? usernameMatch[1] : 'Unavailable';
-    const profileURL = `https://nitter.net/${username}`;
-    const profileResp = await fetch(profileURL);
     let followers = 'Unavailable';
-    if (profileResp.ok) {
-      const profileHTML = await profileResp.text();
+    try {
+      const profileHTML = await tryFetch(`https://x.com/${username}`);
       const $$ = cheerio.load(profileHTML);
-      const count = $$('.profile-stat[href$="/followers"] .profile-stat-num').text().trim();
-      if (count) followers = count;
-    }
+      followers = $$('a[href$="/followers"] .profile-stat-num').first().text().trim() || 'Unavailable';
+    } catch {}
 
     res.json({ url: tweetURL, username, content, followers });
   } catch (err) {
-    res.json({ url: tweetURL, username: 'Unavailable', content: 'Unavailable', followers: 'Unavailable', error: err.message });
+    res.json({ url: tweetURL, username, content: 'Unavailable', followers: 'Unavailable', error: err.message });
   }
 });
 
