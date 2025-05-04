@@ -15,36 +15,32 @@ app.get('/scrape', async (req, res) => {
 
   const username = match[1];
   const tweetId = match[2];
-  const twiiitUrl = `https://twiiit.com/${username}/status/${tweetId}`;
+  const profileURL = `https://twiiit.com/${username}`;
 
   try {
-    const response = await fetch(twiiitUrl, {
+    const response = await fetch(profileURL, {
       redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0'
-      }
+      headers: { 'User-Agent': 'Mozilla/5.0' }
     });
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    const content = $('.main-tweet .tweet-content').text().trim() || 'Unavailable';
-    const followersText = $('a[href$="/followers"]').text().trim();
+    const finalURL = response.url;
+    const followersText = $('a[href$="/followers"]').first().text().trim();
     const followers = parseInt(followersText.replace(/\D/g, '')) || 'Unavailable';
 
-    const finalTemplate = `*Social Media:* X (formerly Twitter)
+    const template = `*Social Media:* X (formerly Twitter)
 
 *Link:* https://x.com/${username}/status/${tweetId}
-
-${content}
 
 *User Name:* @${username}
 
 *Number of followers:* ${followers}`;
 
-    res.json({ template: finalTemplate });
+    res.json({ template });
 
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch tweet via twiiit.com' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch data from Twiiit' });
   }
 });
 
