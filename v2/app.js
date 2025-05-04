@@ -2,6 +2,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const cheerio = require('cheerio');
 const path = require('path');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -13,13 +14,13 @@ const nitterInstances = [
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-async function tryNitterRequest(xUrl) {
+async function fetchWorkingInstance(urlPath) {
   for (const base of nitterInstances) {
-    const tweetPath = xUrl.replace(/^https:\/\/(x|twitter)\.com/, base).replace(/#.+$/, '');
+    const fullUrl = `${base}${urlPath}`;
     try {
-      const res = await fetch(tweetPath, { timeout: 10000 });
-      if (res.ok) return await res.text();
-    } catch (_) {}
+      const response = await fetch(fullUrl, { timeout: 10000 });
+      if (response.ok) return await response.text();
+    } catch (e) {}
   }
   throw new Error('All Nitter instances failed');
 }
@@ -33,11 +34,11 @@ app.get('/scrape', async (req, res) => {
   const tweetId = match[2];
 
   try {
-    const tweetHtml = await tryNitterRequest(url);
+    const tweetHtml = await fetchWorkingInstance(`/${username}/status/${tweetId}`);
     const $ = cheerio.load(tweetHtml);
     const content = $('div.main-tweet .tweet-content p').text().trim() || 'Unavailable';
 
-    const profileHtml = await tryNitterRequest(`https://x.com/${username}`);
+    const profileHtml = await fetchWorkingInstance(`/${username}`);
     const _$ = cheerio.load(profileHtml);
     const followersText = _$('a[href$="/followers"]').first().text().trim();
     const followers = parseInt(followersText.replace(/[^0-9]/g, '')) || 0;
