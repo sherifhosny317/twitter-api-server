@@ -1,36 +1,43 @@
-const express = require('express');
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
-const app = express();
-const PORT = process.env.PORT || 3000;
+require('dotenv').config()
+const express = require('express')
+const fetch = (...args) =>
+  import('node-fetch').then(({ default: fetch }) => fetch(...args))
+const cheerio = require('cheerio')
 
-app.use(express.static('public'));
-app.use(express.json());
+const app = express()
 
 app.get('/scrape', async (req, res) => {
-  const tweetURL = req.query.url;
-  if (!tweetURL) return res.status(400).json({ error: 'URL is required' });
-
-  const m = tweetURL.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i);
-  if (!m) return res.status(400).json({ error: 'Invalid Twitter/X URL' });
-  const [, username, statusId] = m;
-
-  const nitterURL = `https://nitter.net/${username}/status/${statusId}`;
-  try {
-    const resp = await fetch(nitterURL, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const html = await resp.text();
-    const $ = cheerio.load(html);
-
-    const content = $('.tweet-content').first().text().trim() || 'Unavailable';
-    const followers = $('li a[href$="/followers"] .profile-statnum')
-      .first()
-      .text()
-      .trim() || 'Unavailable';
-
-    res.json({ url: tweetURL, username, content, followers });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const tweetUrl = req.query.url
+  if (!tweetUrl) {
+    return res.json({ error: 'Missing url parameter' })
   }
-});
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  try {
+    const m = tweetUrl.match(/(?:twitter|x)\.com\/([^\/]+)\/status\/(\d+)/i)
+    if (!m) throw new Error('Invalid URL')
+    const username = m[1]
+    const tweetId = m[2]
+    const nitter = 'https://nitter.net'
+
+    const tweetResp = await fetch(`${nitter}/${username}/status/${tweetId}`)
+    if (!tweetResp.ok) throw new Error(`Failed to fetch tweet: HTTP ${tweetResp.status}`)
+    const tweetHtml = await tweetResp.text()
+    const $ = cheerio.load(tweetHtml)
+    const content = $('.tweet-content p').first().text().trim() || 'Unavailable'
+
+    const profileResp = await fetch(`${nitter}/${username}`)
+    if (!profileResp.ok) throw new Error(`Failed to fetch profile: HTTP ${profileResp.status}`)
+    const profileHtml = await profileResp.text()
+    const $p = cheerio.load(profileHtml)
+    const followers = $p('div.profile-statnums a[href$="/followers"]').text().trim() || 'Unavailable'
+
+    res.json({ url: tweetUrl, username, content, followers })
+  } catch (err) {
+    res.json({ error: err.message })
+  }
+})
+
+const PORT = process.env.PORT || 3000
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
+})
