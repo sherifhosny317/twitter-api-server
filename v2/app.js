@@ -1,6 +1,5 @@
 const express = require('express');
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
+const puppeteer = require('puppeteer');
 const path = require('path');
 
 const app = express();
@@ -9,38 +8,41 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/scrape', async (req, res) => {
-  const url = req.query.url;
-  const match = url.match(/x\.com\/([^\/]+)\/status\/(\d+)/);
+  const tweetUrl = req.query.url;
+  const match = tweetUrl.match(/x\.com\/([^\/]+)\/status\/(\d+)/);
   if (!match) return res.status(400).json({ error: 'Invalid tweet URL' });
 
   const username = match[1];
   const tweetId = match[2];
-  const profileURL = `https://twiiit.com/${username}`;
+  const profileUrl = `https://nitter.net/${username}`;
+  const tweetPageUrl = `https://nitter.net/${username}/status/${tweetId}`;
 
   try {
-    const response = await fetch(profileURL, {
-      redirect: 'follow',
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-    const html = await response.text();
-    const $ = cheerio.load(html);
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
-    const finalURL = response.url;
-    const followersText = $('a[href$="/followers"]').first().text().trim();
-    const followers = parseInt(followersText.replace(/\D/g, '')) || 'Unavailable';
+    const followers = await page.$eval('a[href$="/followers"]', el => el.textContent.trim().replace(/\D/g, ''));
+
+    await page.goto(tweetPageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    const content = await page.$eval('.tweet-content', el => el.innerText.trim());
+
+    await browser.close();
 
     const template = `*Social Media:* X (formerly Twitter)
 
-*Link:* https://x.com/${username}/status/${tweetId}
+*Link:* ${tweetUrl}
+
+${content}
 
 *User Name:* @${username}
 
 *Number of followers:* ${followers}`;
 
     res.json({ template });
-
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch data from Twiiit' });
+  } catch (error) {
+    res.json({ error: 'Puppeteer scraping failed. Try another username or instance.' });
   }
 });
 
