@@ -6,45 +6,32 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const nitterInstances = [
-  'https://nitter.net',
-  'https://nitter.privacydev.net',
-  'https://nitter.13ad.de'
-];
-
 app.use(express.static(path.join(__dirname, 'public')));
 
-async function fetchWorkingInstance(urlPath) {
-  for (const base of nitterInstances) {
-    const fullUrl = `${base}${urlPath}`;
-    try {
-      const response = await fetch(fullUrl, { timeout: 10000 });
-      if (response.ok) return await response.text();
-    } catch (e) {}
-  }
-  throw new Error('All Nitter instances failed');
-}
-
 app.get('/scrape', async (req, res) => {
-  const url = req.query.url || '';
-  const match = url.match(/x\.com\/(.*?)\/status\/(\d+)/);
+  const url = req.query.url;
+  const match = url.match(/x\.com\/([^\/]+)\/status\/(\d+)/);
   if (!match) return res.status(400).json({ error: 'Invalid tweet URL' });
 
   const username = match[1];
   const tweetId = match[2];
+  const twiiitUrl = `https://twiiit.com/${username}/status/${tweetId}`;
 
   try {
-    const tweetHtml = await fetchWorkingInstance(`/${username}/status/${tweetId}`);
-    const $ = cheerio.load(tweetHtml);
-    const content = $('div.main-tweet .tweet-content p').text().trim() || 'Unavailable';
+    const response = await fetch(twiiitUrl, {
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0'
+      }
+    });
+    const html = await response.text();
+    const $ = cheerio.load(html);
 
-    const profileHtml = await fetchWorkingInstance(`/${username}`);
-    const _$ = cheerio.load(profileHtml);
-    const followersText = _$('a[href$="/followers"]').first().text().trim();
-    const followers = parseInt(followersText.replace(/[^0-9]/g, '')) || 0;
+    const content = $('.main-tweet .tweet-content').text().trim() || 'Unavailable';
+    const followersText = $('a[href$="/followers"]').text().trim();
+    const followers = parseInt(followersText.replace(/\D/g, '')) || 'Unavailable';
 
-    res.json({
-      template: `*Social Media:* X (formerly Twitter)
+    const finalTemplate = `*Social Media:* X (formerly Twitter)
 
 *Link:* https://x.com/${username}/status/${tweetId}
 
@@ -52,10 +39,12 @@ ${content}
 
 *User Name:* @${username}
 
-*Number of followers:* ${followers}`
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+*Number of followers:* ${followers}`;
+
+    res.json({ template: finalTemplate });
+
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch tweet via twiiit.com' });
   }
 });
 
