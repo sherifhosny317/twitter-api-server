@@ -1,40 +1,41 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.use(express.static('public'));
+app.use(express.json());
+
 app.get('/scrape', async (req, res) => {
-  const url = req.query.url;
-  if (!url) return res.json({ error: 'Missing url parameter' });
+  const tweetUrl = req.query.url;
+  if (!tweetUrl) return res.status(400).json({ error: 'Missing URL' });
 
-  let browser;
   try {
-    browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
     const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'networkidle2' });
+    await page.goto(tweetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    const content = await page
-      .$$eval('span[data-testid="tweetText"]', els =>
-        els.map(el => el.innerText).join('\n')
-      )
-      .then(txt => txt || 'Unavailable')
-      .catch(() => 'Unavailable');
+    await page.waitForSelector('article');
 
-    const usernameMatch = url.match(/(?:twitter|x)\.com\/([^\/]+)\//i);
-    const username = usernameMatch ? usernameMatch[1] : 'Unavailable';
+    const data = await page.evaluate(() => {
+      const article = document.querySelector('article');
+      const usernameSpan = article.querySelector('a[role="link"][href^="/"] > div > div > span');
+      const tweetContent = article.querySelector('div[data-testid="tweetText"]');
+      const username = usernameSpan ? usernameSpan.textContent : 'Unavailable';
+      const content = tweetContent ? tweetContent.innerText : 'Unavailable';
+      return { username, content };
+    });
 
-    await page.goto(`https://x.com/${username}`, { waitUntil: 'networkidle2' });
+    await browser.close();
 
-    const followers = await page
-      .$eval(`a[href="/${username}/followers"] span`, el => el.innerText)
-      .catch(() => 'Unavailable');
-
-    res.json({ url, username, content, followers });
-  } catch (err) {
-    res.json({ error: err.message });
-  } finally {
-    if (browser) await browser.close();
+    res.json({
+      url: tweetUrl,
+      username: data.username,
+      content: data.content,
+      followers: 'Unavailable'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
